@@ -34,6 +34,6 @@ tag VERSION:
 	tomato set package.version "$version" Cargo.toml
 	# update the lock file
 	cargo check
-	git commit Cargo.toml Cargo.lock -m "v${version}"
-	git tag "v${version}"
-	echo "Release tagged for version v${version}"
+	git commit Cargo.toml Cargo.lock -m "${version}"
+	git tag "${version}"
+	echo "Release tagged for version ${version}"
