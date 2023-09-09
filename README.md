@@ -18,7 +18,7 @@ If the input option is a _directory_, `md2nexus` converts all markdown files in 
 
 ## Notes on conversion
 
-Markdown is far more expressive than Nexus bbcode, which is a stunted bbcode variation. Some valid markup types are converted to code blocks where that makes sense. What I did with tables was use a table output formatter intended for terminal usage, and wrap it all in a code block.
+Markdown is far more expressive than Nexus bbcode, which is a stunted bbcode variation. This tool converts some Markdown concepts to code blocks to make them work. For example, to handle Markdown tables, this tool uses a table output formatter intended for terminal usage and wraps it all in a code block.
 
 Github-flavored markdown is supported. [MDX](https://mdxjs.com) is not supported at all, as Nexus bbcode doesn't allow components or javascript or indeed any potentially dangerous user-generated content.
 
@@ -27,13 +27,19 @@ In-document references such as footnotes or link references are not converted in
 ## Full usage
 
 ```text
+$ md2nexus -h
+A command-line tool to convert gfm markdown to NexusMods-flavored bbcode
+
 Usage: md2nexus [OPTIONS]
 
 Options:
-  -i, --input <FILE>
-  -o, --output <FILE>
-  -c, --completions <COMPLETIONS>  [possible values: bash, elvish, fish, powershell, zsh]
-  -h, --help                       Print help
+  -i, --input <PATHNAME>           Path to an input file or directory.
+                                   If omitted, input is read from stdin.
+  -o, --output <PATHNAME>          Path to an output file or directory
+  -c, --completions <COMPLETIONS>  Emit completion data for your preferred shell [possible values:
+                                   bash, elvish, fish, powershell, zsh]
+      --license                    Print GPL-3.0 license information
+  -h, --help                       Print help (see more with '--help')
   -V, --version                    Print version
 ```
 

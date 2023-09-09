@@ -2,12 +2,22 @@
 name = "md2nexus"
 version = "0.1.0"
 edition = "2021"
+authors = ["C J Silverio <ceejceej@gmail.com>"]
+description = "A command-line tool to convert gfm markdown to NexusMods-flavored bbcode."
+readme = "README.md"
+license = "GPL-3.0"
+categories = ["command-line-utilities"]
+keywords = ["cli", "markdown", "bbcode"]
+repository = "https://github.com/ceejbot/md2nexus"
+homepage = "https://github.com/ceejbot/md2nexus"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[[bin]]
+name = "md2nexus"
+path = "src/main.rs"
 
 [dependencies]
 anyhow = "1.0.75"
-clap = { version = "4.4.2", features = ["derive"] }
+clap = { version = "4.4.2", features = ["derive", "color", "cargo", "wrap_help"] }
 clap_complete = "4.4.1"
 markdown = "1.0.0-alpha.12"
 owo-colors = "3.5.0"

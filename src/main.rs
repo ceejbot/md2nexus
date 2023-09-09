@@ -4,8 +4,11 @@ use std::io::prelude::*;
 use std::io::BufReader;
 use std::path::PathBuf;
 
+use clap::builder::Styles;
 use clap::Parser;
 use clap_complete::{generate, Shell};
+use markdown::mdast::Definition;
+use markdown::mdast::FootnoteDefinition;
 use markdown::mdast::Node;
 use markdown::{to_mdast, ParseOptions};
 use owo_colors::OwoColorize;
@@ -14,14 +17,16 @@ use prettytable::{Cell, Row, Table};
 #[derive(Clone, Debug, Parser)]
 #[clap(name = "md2nexus", version)]
 /// A command-line tool to convert gfm markdown to NexusMods-flavored bbcode.
-///
 pub struct Args {
     /// Path to an input file or directory. If omitted, input is read from stdin.
-    #[clap(short, long, value_name = "FILE")]
+    #[clap(short, long, value_name = "PATHNAME")]
     input: Option<PathBuf>,
-    /// Path to an output file or directory. If omitted, single-file input is written
-    /// to stdout. If the input option is a directory, output files are written to '.'.
-    #[clap(short, long, value_name = "FILE")]
+    /// Path to an output file or directory.
+    ///
+    /// If omitted, single-file input is written to stdout. If the input option is a directory,
+    /// output files are written to '.'. If provided and input is a directory, output must also
+    /// be a directory.
+    #[clap(short, long, value_name = "PATHNAME")]
     output: Option<PathBuf>,
     /// Emit completion data for your preferred shell.
     #[clap(short, long)]
@@ -62,7 +67,7 @@ fn handle_directory(dirpath: PathBuf, outpath: PathBuf) -> anyhow::Result<()> {
         let file = File::open(&fpath)?;
         let mut reader = BufReader::new(file);
         reader.read_to_string(&mut data)?;
-        let result = convert_buffer(&data)?;
+        let result = convert_buffer(&data);
         let mut output = File::create(&outfname)?;
         write!(output, "{result}")?;
         println!(
@@ -76,22 +81,20 @@ fn handle_directory(dirpath: PathBuf, outpath: PathBuf) -> anyhow::Result<()> {
 }
 
 /// Given an input markdown str, emit nexus bbcode as a string.
-fn convert_buffer(input: &str) -> anyhow::Result<String> {
+fn convert_buffer(input: &str) -> String {
     // This function is infallible with the default options.
     let tree =
         to_mdast(input, &ParseOptions::gfm()).expect("failed to parse markdown as valid GFM.");
-    if let Some(children) = tree.children() {
-        let mut state = State::new();
-        Ok(state.convert_children(children))
-    } else {
-        Ok("".to_string())
-    }
+    let mut state = State::new();
+    state.render(tree)
 }
 
 /// State is the worst.
 struct State {
     table: Option<Table>,
     row: Option<Row>,
+    definitions: Vec<Definition>,
+    footnotes: Vec<FootnoteDefinition>,
 }
 
 impl State {
@@ -99,28 +102,70 @@ impl State {
         State {
             table: None,
             row: None,
+            definitions: Vec::new(),
+            footnotes: Vec::new(),
         }
     }
 
+    pub fn render(&mut self, tree: Node) -> String {
+        if let Some(children) = tree.children() {
+            let rendered = self.render_nodes(children);
+            let linkdefs = self
+                .definitions
+                .clone()
+                .iter()
+                .map(|def| {
+                    let anchor = if let Some(ref title) = def.title {
+                        title.clone()
+                    } else {
+                        def.identifier.clone()
+                    };
+                    format!("\n^{}: [url={}]{}[/url]", def.identifier, def.url, anchor)
+                })
+                .collect::<Vec<String>>()
+                .join("\n");
+            let footnotes = self
+                .footnotes
+                .clone()
+                .iter()
+                .map(|xs| format!("\n^{}: {}", xs.identifier, self.render_nodes(&xs.children)))
+                .collect::<Vec<String>>()
+                .join("\n");
+            let result = vec![rendered, linkdefs, footnotes].join("");
+            // Sadly, some whitespace fixup because Nexus rendering is quite sensitive to it
+            // and I didn't track enough state to get it right.
+            result
+                .trim()
+                .replace("\n\n\n", "\n\n")
+                .replace("[*]\n", "[*]")
+        } else {
+            "".to_string()
+        }
+    }
+
+    /// Render the passed-in vector of nodes.
+    pub fn render_nodes(&mut self, nodelist: &[Node]) -> String {
+        nodelist
+            .iter()
+            .map(|xs| self.render_node(xs))
+            .collect::<Vec<String>>()
+            .join("")
+    }
+
     /// Convert a single node type to bbcode, recursing into children if it has any.
-    pub fn convert_node(&mut self, node: &Node) -> String {
+    /// This is where all the interesting work is.
+    pub fn render_node(&mut self, node: &Node) -> String {
         match node {
-            Node::Root(root) => self.convert_children(&root.children),
-            Node::Paragraph(p) => format!("{}\n\n", self.convert_children(&p.children)),
+            Node::Root(root) => self.render_nodes(&root.children),
+            Node::Paragraph(p) => format!("\n{}\n", self.render_nodes(&p.children)),
             Node::BlockQuote(t) => {
-                format!("\n[quote]{}[/quote]\n", self.convert_children(&t.children))
+                format!("[quote]{}[/quote]\n", self.render_nodes(&t.children))
             }
             Node::List(list) => {
                 if list.ordered {
-                    format!(
-                        "\n[list=1]\n{}[/list]\n\n",
-                        self.convert_children(&list.children)
-                    )
+                    format!("\n[list=1]\n{}[/list]", self.render_nodes(&list.children))
                 } else {
-                    format!(
-                        "\n[list]\n{}[/list]\n\n",
-                        self.convert_children(&list.children)
-                    )
+                    format!("\n[list]\n{}[/list]", self.render_nodes(&list.children))
                 }
             }
             Node::Toml(t) => format!("\n[code]{}[/code]\n\n", t.value),
@@ -134,31 +179,31 @@ impl State {
                 }
             }
             Node::InlineMath(t) => format!("[font=\"Courier\"]{}[/font]", t.value),
-            Node::Delete(t) => format!("[s]{}[/s]", self.convert_children(&t.children)),
-            Node::Emphasis(t) => format!("[i]{}[/i]", self.convert_children(&t.children)),
+            Node::Delete(t) => format!("[s]{}[/s]", self.render_nodes(&t.children)),
+            Node::Emphasis(t) => format!("[i]{}[/i]", self.render_nodes(&t.children)),
             Node::Html(t) => t.value.clone(),
             Node::Image(t) => format!("[img]{}[/img]", t.url),
             Node::Link(link) => format!(
                 "[url={}]{}[/url]",
                 link.url.clone(),
-                self.convert_children(&link.children)
+                self.render_nodes(&link.children)
             ),
-            Node::Strong(t) => format!("\n[b]{}[/b]\n", self.convert_children(&t.children)),
+            Node::Strong(t) => format!("\n[b]{}[/b]\n", self.render_nodes(&t.children)),
             Node::Text(t) => t.value.clone(),
-            Node::Code(t) => format!("\n[code]\n{}\n[/code]\n\n", t.value),
-            Node::Math(t) => format!("\n[code]\n{}\n[/code]\n\n", t.value), // no equivalent in bbcode
+            Node::Code(t) => {
+                format!("\n[code]{}[/code]\n", t.value)
+            }
+            Node::Math(t) => format!("\n[code]{}[/code]\n", t.value), // no equivalent in bbcode
             Node::Heading(h) => {
-                format!(
-                    "\n[heading]{}[/heading]\n\n",
-                    self.convert_children(&h.children)
-                )
+                // Nexus bbcode does not support "heading". SMH.
+                format!("\n[size=5]{}[/size]\n\n", self.render_nodes(&h.children))
             }
             Node::Table(t) => {
                 let mut tablestate = State::new();
                 tablestate.table = Some(Table::new());
-                tablestate.convert_children(&t.children);
+                tablestate.render_nodes(&t.children);
                 if let Some(finished) = tablestate.table.clone() {
-                    let result = format!("\n[code]\n{finished}[/code]\n");
+                    let result = format!("[code]{finished}[/code]\n");
                     result
                 } else {
                     "".to_string()
@@ -169,7 +214,7 @@ impl State {
                 if let Some(ref table) = self.table {
                     let mut rowstate = State::new();
                     rowstate.row = Some(Row::new(Vec::new()));
-                    rowstate.convert_children(&row.children);
+                    rowstate.render_nodes(&row.children);
                     if let Some(finished) = rowstate.row.clone() {
                         let mut clone = table.clone();
                         clone.add_row(finished);
@@ -181,34 +226,26 @@ impl State {
             Node::TableCell(cell) => {
                 if let Some(ref row) = self.row {
                     let mut cloned = row.clone();
-                    let string = format!("{}", self.convert_children(&cell.children));
+                    let string = format!("{}", self.render_nodes(&cell.children));
                     let cell = Cell::new(string.as_str());
                     cloned.add_cell(cell);
                     self.row = Some(cloned);
                 }
                 "".to_string()
             }
-            Node::ListItem(t) => format!("[*]{}", self.convert_children(&t.children)),
+            Node::ListItem(t) => format!("[*]{}", self.render_nodes(&t.children)),
 
             // the following markup types have meh support
             Node::FootnoteReference(footie) => {
                 format!("(See ^{})", footie.identifier)
             }
-            Node::FootnoteDefinition(note) => {
-                format!(
-                    "\n^{}: {}",
-                    note.identifier,
-                    self.convert_children(&note.children)
-                )
+            Node::FootnoteDefinition(ref note) => {
+                self.footnotes.push(note.clone());
+                "".to_string()
             }
-            Node::Definition(def) => {
-                // this is a definition used by link and image references
-                let anchor = if let Some(ref title) = def.title {
-                    title.clone()
-                } else {
-                    def.identifier.clone()
-                };
-                format!("\n^{}: [url={}]{}[/url]", def.identifier, def.url, anchor)
+            Node::Definition(ref def) => {
+                self.definitions.push(def.clone());
+                "".to_string()
             }
             Node::ImageReference(imgref) => {
                 format!("[{}] {}", imgref.identifier, imgref.alt)
@@ -217,7 +254,7 @@ impl State {
                 format!(
                     "(See image {}; {})",
                     linkref.identifier,
-                    self.convert_children(&linkref.children)
+                    self.render_nodes(&linkref.children)
                 )
             }
 
@@ -243,14 +280,6 @@ impl State {
                 "".to_string()
             }
         }
-    }
-
-    pub fn convert_children(&mut self, children: &[Node]) -> String {
-        children
-            .iter()
-            .map(|xs| self.convert_node(xs))
-            .collect::<Vec<String>>()
-            .join("")
     }
 }
 
@@ -313,7 +342,7 @@ fn main() -> anyhow::Result<()> {
         let mut reader = BufReader::new(std::io::stdin());
         reader.read_to_string(&mut data)?;
     }
-    let result = convert_buffer(&data)?;
+    let result = convert_buffer(&data);
     if let Some(outpath) = args.output {
         let mut output = File::create(outpath)?;
         write!(output, "{result}")?;
