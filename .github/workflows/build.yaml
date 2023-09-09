@@ -3,6 +3,9 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+permissions:
+  contents: write
 
 env:
       CARGO_TERM_COLOR: always
@@ -30,12 +33,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [release]
     steps:
-      - uses: actions/checkout@v3
-
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          override: true
+      - uses: actions/checkout@v4
 
       - uses: actions/cache@v3
         with:
@@ -51,9 +49,9 @@ jobs:
 
       - name: write out completions
         run: |
-          ./target/release/md2nexus completions bash > completions.bash
-          ./target/release/md2nexus completions zsh > completions.zsh
-          ./target/release/md2nexus completions fish > completions.fish
+          ./target/release/md2nexus --completions bash > completions.bash
+          ./target/release/md2nexus --completions zsh > completions.zsh
+          ./target/release/md2nexus --completions fish > completions.fish
 
       - name: tar it up
         run: |
@@ -99,11 +97,11 @@ jobs:
     runs-on: macos-latest
     needs: [release]
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
-      - uses: actions/cache@v2
+      - uses: actions/cache@v3
         with:
           path: |
             ~/.cargo/registry
@@ -117,9 +115,9 @@ jobs:
 
       - name: write out completions
         run: |
-          ./target/release/md2nexus completions bash > completions.bash
-          ./target/release/md2nexus completions zsh > completions.zsh
-          ./target/release/md2nexus completions fish > completions.fish
+          ./target/release/md2nexus --completions bash > completions.bash
+          ./target/release/md2nexus --completions zsh > completions.zsh
+          ./target/release/md2nexus --completions fish > completions.fish
 
       - name: tar up the Mac Intel release
         run: |
