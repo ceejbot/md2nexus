@@ -4,7 +4,6 @@ use std::io::prelude::*;
 use std::io::BufReader;
 use std::path::PathBuf;
 
-use clap::builder::Styles;
 use clap::Parser;
 use clap_complete::{generate, Shell};
 use markdown::mdast::Definition;
@@ -51,11 +50,11 @@ fn handle_directory(dirpath: PathBuf, outpath: PathBuf) -> anyhow::Result<()> {
             continue;
         }
         let Some(filename) = fpath.file_name() else {
-        continue;
-    };
+            continue;
+        };
         let Some(ext) = fpath.extension() else {
-        continue;
-    };
+            continue;
+        };
         if ext != "md" {
             continue;
         }
