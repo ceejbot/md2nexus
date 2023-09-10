@@ -1,14 +1,11 @@
-use std::fs::create_dir_all;
-use std::fs::File;
+use std::fs::{create_dir_all, File};
 use std::io::prelude::*;
 use std::io::BufReader;
 use std::path::PathBuf;
 
 use clap::Parser;
 use clap_complete::{generate, Shell};
-use markdown::mdast::Definition;
-use markdown::mdast::FootnoteDefinition;
-use markdown::mdast::Node;
+use markdown::mdast::{Definition, FootnoteDefinition, Node};
 use markdown::{to_mdast, ParseOptions};
 use owo_colors::OwoColorize;
 use prettytable::{Cell, Row, Table};
@@ -89,9 +86,11 @@ fn convert_buffer(input: &str) -> String {
 }
 
 /// State is the worst.
+#[derive(Clone, Debug)]
 struct State {
     table: Option<Table>,
     row: Option<Row>,
+    titles: bool,
     definitions: Vec<Definition>,
     footnotes: Vec<FootnoteDefinition>,
 }
@@ -101,6 +100,7 @@ impl State {
         State {
             table: None,
             row: None,
+            titles: false,
             definitions: Vec::new(),
             footnotes: Vec::new(),
         }
@@ -130,7 +130,7 @@ impl State {
                 .map(|xs| format!("\n^{}: {}", xs.identifier, self.render_nodes(&xs.children)))
                 .collect::<Vec<String>>()
                 .join("\n");
-            let result = vec![rendered, linkdefs, footnotes].join("");
+            let result = [rendered, linkdefs, footnotes].join("");
             // Sadly, some whitespace fixup because Nexus rendering is quite sensitive to it
             // and I didn't track enough state to get it right.
             result
@@ -157,6 +157,7 @@ impl State {
         match node {
             Node::Root(root) => self.render_nodes(&root.children),
             Node::Paragraph(p) => format!("\n{}\n", self.render_nodes(&p.children)),
+            Node::Text(t) => t.value.clone(),
             Node::BlockQuote(t) => {
                 format!("[quote]{}[/quote]\n", self.render_nodes(&t.children))
             }
@@ -167,9 +168,11 @@ impl State {
                     format!("\n[list]\n{}[/list]", self.render_nodes(&list.children))
                 }
             }
-            Node::Toml(t) => format!("\n[code]{}[/code]\n\n", t.value),
-            Node::Yaml(t) => format!("\n[code]{}[/code]\n\n", t.value),
+            Node::ListItem(t) => format!("[*]{}", self.render_nodes(&t.children)),
             Node::Break(_) => "\n\n".to_string(),
+            Node::Code(t) => {
+                format!("\n[code]{}[/code]\n", t.value)
+            }
             Node::InlineCode(t) => {
                 if self.table.is_none() && self.row.is_none() {
                     format!("[font=\"Courier\"]{}[/font]", t.value)
@@ -177,9 +180,13 @@ impl State {
                     t.value.clone()
                 }
             }
-            Node::InlineMath(t) => format!("[font=\"Courier\"]{}[/font]", t.value),
             Node::Delete(t) => format!("[s]{}[/s]", self.render_nodes(&t.children)),
             Node::Emphasis(t) => format!("[i]{}[/i]", self.render_nodes(&t.children)),
+            Node::Strong(t) => format!("\n[b]{}[/b]\n", self.render_nodes(&t.children)),
+            Node::Heading(h) => {
+                // Nexus bbcode does not support "heading". SMH.
+                format!("\n[size=5]{}[/size]\n\n", self.render_nodes(&h.children))
+            }
             Node::Html(t) => t.value.clone(),
             Node::Image(t) => format!("[img]{}[/img]", t.url),
             Node::Link(link) => format!(
@@ -187,37 +194,41 @@ impl State {
                 link.url.clone(),
                 self.render_nodes(&link.children)
             ),
-            Node::Strong(t) => format!("\n[b]{}[/b]\n", self.render_nodes(&t.children)),
-            Node::Text(t) => t.value.clone(),
-            Node::Code(t) => {
-                format!("\n[code]{}[/code]\n", t.value)
-            }
             Node::Math(t) => format!("\n[code]{}[/code]\n", t.value), // no equivalent in bbcode
-            Node::Heading(h) => {
-                // Nexus bbcode does not support "heading". SMH.
-                format!("\n[size=5]{}[/size]\n\n", self.render_nodes(&h.children))
-            }
+            Node::InlineMath(t) => format!("[font=\"Courier\"]{}[/font]", t.value),
+            Node::ThematicBreak(_) => "\n\n[line]\n\n".to_string(),
+            Node::Toml(t) => format!("\n[code]{}[/code]\n\n", t.value),
+            Node::Yaml(t) => format!("\n[code]{}[/code]\n\n", t.value),
+
+            // Tables
             Node::Table(t) => {
-                let mut tablestate = State::new();
-                tablestate.table = Some(Table::new());
-                tablestate.render_nodes(&t.children);
-                if let Some(finished) = tablestate.table.clone() {
-                    let result = format!("[code]{finished}[/code]\n");
+                let mut table = Table::new();
+                table.set_format(*prettytable::format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
+                self.table = Some(table);
+                self.render_nodes(&t.children);
+                if let Some(finished) = self.table.clone() {
+                    self.titles = false;
+                    self.table = None;
+                    let result = format!("\n[font=Courier][code]{finished}[/code][/font]\n");
                     result
                 } else {
                     "".to_string()
                 }
             }
-            Node::ThematicBreak(_) => "\n\n[line]\n\n".to_string(),
             Node::TableRow(row) => {
-                if let Some(ref table) = self.table {
-                    let mut rowstate = State::new();
-                    rowstate.row = Some(Row::new(Vec::new()));
-                    rowstate.render_nodes(&row.children);
-                    if let Some(finished) = rowstate.row.clone() {
-                        let mut clone = table.clone();
-                        clone.add_row(finished);
-                        self.table = Some(clone);
+                let tablerow = Row::new(Vec::new());
+                self.row = Some(tablerow);
+                self.render_nodes(&row.children);
+                if let Some(finished) = self.row.clone() {
+                    if let Some(ref table) = self.table {
+                        let mut table = table.clone();
+                        if !self.titles {
+                            table.set_titles(finished);
+                            self.titles = true
+                        } else {
+                            table.add_row(finished);
+                        }
+                        self.table = Some(table);
                     }
                 }
                 "".to_string()
@@ -225,14 +236,13 @@ impl State {
             Node::TableCell(cell) => {
                 if let Some(ref row) = self.row {
                     let mut cloned = row.clone();
-                    let string = format!("{}", self.render_nodes(&cell.children));
+                    let string = self.render_nodes(&cell.children);
                     let cell = Cell::new(string.as_str());
                     cloned.add_cell(cell);
                     self.row = Some(cloned);
                 }
                 "".to_string()
             }
-            Node::ListItem(t) => format!("[*]{}", self.render_nodes(&t.children)),
 
             // the following markup types have meh support
             Node::FootnoteReference(footie) => {

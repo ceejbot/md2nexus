@@ -1,7 +1,26 @@
 # md2nexus
 
-This is a command-line tool for converting single files or directories of
-files from Markdown to valid [Nexusmods](https://nexusmods.com) [bbcode](https://wiki.nexusmods.com/index.php/Formating_and_BBCode_in_Descriptions). The Nexus bbcode editors are hell to use if you're writing any complex documentation.
+This is a command-line tool for converting single files or directories of files from Markdown to valid [Nexusmods](https://nexusmods.com) [bbcode](https://wiki.nexusmods.com/index.php/Formating_and_BBCode_in_Descriptions). The Nexus bbcode editors are hell to use if you're writing any complex documentation.
+
+To install, you can download a MacOS, Linux, or Windows prebuilt executable from [the releases](https://github.com/ceejbot/md2nexus/releases/latest). Or you can use Homebrew:
+
+```shell
+brew tap ceejbot/tap
+brew install md2nexus
+```
+
+If you have rust installed and prefer to build from source:
+
+```shell
+gh repo clone ceejbot/md2nexus
+cd md2nexus
+cargo build --release
+
+# once installed:
+md2nexus --help
+```
+
+## Usage
 
 Simplest possible usage:
 
