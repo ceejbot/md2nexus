@@ -174,18 +174,22 @@ impl State {
                 format!("\n[code]{}[/code]\n", t.value)
             }
             Node::InlineCode(t) => {
-                if self.table.is_none() && self.row.is_none() {
-                    format!("[font=\"Courier\"]{}[/font]", t.value)
-                } else {
+                if self.table.is_some() {
                     t.value.clone()
+                } else {
+                    format!("[font=Courier New]{}[/font]", t.value)
                 }
             }
             Node::Delete(t) => format!("[s]{}[/s]", self.render_nodes(&t.children)),
             Node::Emphasis(t) => format!("[i]{}[/i]", self.render_nodes(&t.children)),
-            Node::Strong(t) => format!("\n[b]{}[/b]\n", self.render_nodes(&t.children)),
+            Node::Strong(t) => format!("[b]{}[/b]", self.render_nodes(&t.children)),
             Node::Heading(h) => {
                 // Nexus bbcode does not support "heading". SMH.
-                format!("\n[size=5]{}[/size]\n\n", self.render_nodes(&h.children))
+                let size = (7 - h.depth).clamp(2, 6);
+                format!(
+                    "\n[size={size}]{}[/size]\n\n",
+                    self.render_nodes(&h.children)
+                )
             }
             Node::Html(t) => t.value.clone(),
             Node::Image(t) => format!("[img]{}[/img]", t.url),
@@ -195,7 +199,7 @@ impl State {
                 self.render_nodes(&link.children)
             ),
             Node::Math(t) => format!("\n[code]{}[/code]\n", t.value), // no equivalent in bbcode
-            Node::InlineMath(t) => format!("[font=\"Courier\"]{}[/font]", t.value),
+            Node::InlineMath(t) => format!("[font=Courier New]{}[/font]", t.value),
             Node::ThematicBreak(_) => "\n\n[line]\n\n".to_string(),
             Node::Toml(t) => format!("\n[code]{}[/code]\n\n", t.value),
             Node::Yaml(t) => format!("\n[code]{}[/code]\n\n", t.value),
